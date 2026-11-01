@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 try:
+    from PySide6.QtGui import QTextCursor
     from PySide6.QtWidgets import QApplication
 except (ImportError, OSError) as exc:
     raise unittest.SkipTest(f"Qt desktop dependencies are unavailable: {exc}") from exc
@@ -33,10 +34,14 @@ class DesktopRenderingTests(unittest.TestCase):
         editor = Composer()
         editor.set_file_suggestions(["src/main.py", "src/map.txt", "notes.md"])
         editor.setPlainText("Review @src/main.")
+        editor.moveCursor(QTextCursor.MoveOperation.End)
+        editor._update_completions()
         self.assertEqual(editor._active_mention()[0], "src/main.")
         self.assertEqual(editor.completer.completionCount(), 1)
 
         editor.setPlainText('Review @"my folder/fi')
+        editor.moveCursor(QTextCursor.MoveOperation.End)
+        editor._update_completions()
         active = editor._active_mention()
         self.assertEqual(active[0], "my folder/fi")
         self.assertEqual(active[2], '"')
