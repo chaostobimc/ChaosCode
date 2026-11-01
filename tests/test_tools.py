@@ -1,10 +1,19 @@
+import os
 import shlex
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 from chaoscode.tools import ToolError, WorkspaceTools
+
+
+def _python_command(*arguments: str) -> str:
+    parts = [sys.executable, *arguments]
+    if os.name == "nt":
+        return subprocess.list2cmdline(parts)
+    return shlex.join(parts)
 
 
 class WorkspaceToolsTests(unittest.TestCase):
@@ -82,14 +91,14 @@ class WorkspaceToolsTests(unittest.TestCase):
     def test_command_is_not_run_when_denied(self):
         marker = self.root / "marker.txt"
         python_code = f"from pathlib import Path; Path({str(marker)!r}).write_text('ran')"
-        command = f"{shlex.quote(sys.executable)} -c {shlex.quote(python_code)}"
+        command = _python_command("-c", python_code)
         result = self.tools.run_command({"command": command}, lambda *_args: False)
         self.assertTrue(result.is_error)
         self.assertFalse(marker.exists())
 
     def test_approved_command_returns_exit_code_and_output(self):
         result = self.tools.run_command(
-            {"command": f"{shlex.quote(sys.executable)} -c {shlex.quote('print(42)')}"},
+            {"command": _python_command("-c", "print(42)")},
             lambda *_args: True,
         )
         self.assertIn("Exit code: 0", result.content)

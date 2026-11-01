@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QSize, QStringListModel, Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QSize, QStringListModel, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QAction,
     QColor,
@@ -25,7 +25,6 @@ from PySide6.QtGui import (
     QSyntaxHighlighter,
     QTextCharFormat,
     QTextCursor,
-    QUrl,
 )
 from PySide6.QtWidgets import (
     QApplication,

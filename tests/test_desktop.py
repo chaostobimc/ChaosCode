@@ -5,11 +5,11 @@ from unittest.mock import patch
 
 try:
     from PySide6.QtWidgets import QApplication
-
-    from chaoscode.desktop import Composer, MainWindow, _safe_markdown
-    from chaoscode.sessions import Session
 except (ImportError, OSError) as exc:
     raise unittest.SkipTest(f"Qt desktop dependencies are unavailable: {exc}") from exc
+
+from chaoscode.desktop import Composer, MainWindow, _safe_markdown
+from chaoscode.sessions import Session
 
 
 class DesktopRenderingTests(unittest.TestCase):
