@@ -47,6 +47,7 @@ HELP_TEXT = """Befehle in der interaktiven Sitzung:
   /exit          ChaosCode beenden
 
 Dateien als Kontext auswählen:
+  @                              Vorschläge erscheinen; Tab übernimmt eine Auswahl
   @src/main.py                  Dateiinhalt als Kontext laden
   @"docs/notizen für heute.md"  Pfade mit Leerzeichen
   @{docs/notizen für heute.md}  Alternative Schreibweise
@@ -462,10 +463,12 @@ def _run_chat(options: argparse.Namespace) -> int:
             )
             return 2
 
+        from .completion import AtFilePrompt
+
+        interactive_prompt = AtFilePrompt(agent.tools)
         while True:
             try:
-                prompt_text = styled("du", "1;32") + styled(" ❯ ", "1;36")
-                user_text = input(prompt_text)
+                user_text = interactive_prompt.prompt()
             except EOFError:
                 print()
                 break

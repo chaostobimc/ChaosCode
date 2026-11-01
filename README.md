@@ -98,7 +98,7 @@ Inside an interactive session, use `/help`, `/clear`, `/new`, `/status`, or `/ex
 
 ### Select files with `@path`
 
-Mention a project-relative path in a task to load that file as model context:
+In the interactive prompt, type `@` to see available project files and folders, then use the arrow keys and **Tab** to complete a suggestion. You can also type a path directly. A project-relative mention loads the file as model context:
 
 ```text
 Please review @src/main.py and fix the input validation.
