@@ -158,6 +158,18 @@ class WorkspaceTools:
                 "File is not UTF-8 text; binary files cannot be read by this tool."
             ) from exc
 
+    def read_selected_file(self, value: str) -> tuple[str, str]:
+        """Read a selected project-relative file for an @path prompt reference."""
+        if not isinstance(value, str) or not value.strip():
+            raise ToolError("A non-empty project-relative file path is required.")
+        normalized = value.replace("\\", "/")
+        if normalized.startswith("/") or value.startswith("\\\\") or re.match(r"^[A-Za-z]:", value):
+            raise ToolError("@ file references must use paths relative to the project root.")
+        path = self._resolve(normalized, must_exist=True)
+        if not path.is_file():
+            raise ToolError("The selected path is not a file.")
+        return self._relative(path), self._read_text(path)
+
     def list_files(self, arguments: dict[str, Any]) -> ToolResult:
         base = self._resolve(arguments.get("path", "."), must_exist=True)
         if not base.is_dir():

@@ -75,6 +75,9 @@ chaoscode
 # Give it a task directly
 chaoscode "Find and fix the off-by-one bug in the pagination code"
 
+# Load a project file into the model context with @path
+chaoscode "Review @src/main.py and fix the input validation"
+
 # Search can be enabled for DeepSeek responses (off by default)
 chaoscode --search "Check the current package docs and update this project"
 
@@ -91,7 +94,17 @@ chaoscode sessions list
 chaoscode auth status
 ```
 
-Inside an interactive session, use `/help`, `/clear`, `/new`, `/status`, or `/exit`. Conversations are saved locally under the ChaosCode user config directory (with owner-only file permissions); use `--no-save` if you do not want the transcript persisted. The project files are read only when needed by the agent. Project instructions in a root-level `CHAOSCODE.md`, `AGENTS.md`, or `CLAUDE.md` are included in its working context.
+Inside an interactive session, use `/help`, `/clear`, `/new`, `/status`, or `/exit`. Conversations are saved locally under the ChaosCode user config directory (with owner-only file permissions); use `--no-save` if you do not want the transcript persisted. Project instructions in a root-level `CHAOSCODE.md`, `AGENTS.md`, or `CLAUDE.md` are included in its working context.
+
+### Select files with `@path`
+
+Mention a project-relative path in a task to load that file as model context:
+
+```text
+Please review @src/main.py and fix the input validation.
+```
+
+Use `@"folder/file name.py"` or `@{folder/file name.py}` for paths containing spaces. You can select up to four files per task. ChaosCode applies its normal project-root and secret-file protections; large file context is shortened, and the agent can use `read_file` for more. The file stays editable through the usual tools, and every change still requires your approval. Interactive terminals show a colored ChaosCode banner and lightly styled Markdown; `NO_COLOR=1` disables colors, and `--print` stays plain for scripts.
 
 ## Safety and tools
 

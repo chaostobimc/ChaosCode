@@ -91,6 +91,38 @@ class AgentTests(unittest.TestCase):
         self.assertIn("nicht lesbar", result.text)
         self.assertEqual(len(provider.prompts), 2)
 
+    def test_selected_file_is_loaded_and_can_be_edited(self):
+        provider = FakeProvider(
+            [
+                tool_call(
+                    "edit_file",
+                    {
+                        "path": "hello.txt",
+                        "old_text": "hello from project",
+                        "new_text": "hello from ChaosCode",
+                    },
+                ),
+                "Die markierte Datei wurde geändert.",
+            ]
+        )
+        agent = CodingAgent(
+            workspace=self.root,
+            provider=provider,
+            session=self.session,
+            session_store=None,
+            approve=lambda *_args: True,
+        )
+        result = agent.run_turn(
+            "Ändere @hello.txt",
+            selected_files=[("hello.txt", "hello from project\n")],
+        )
+        self.assertIn("File selected explicitly with @hello.txt", provider.prompts[0][0])
+        self.assertIn("hello from project", provider.prompts[0][0])
+        self.assertEqual(
+            (self.root / "hello.txt").read_text(encoding="utf-8"), "hello from ChaosCode\n"
+        )
+        self.assertEqual(result.tool_calls, 2)
+
     def test_creates_requested_python_cli_file(self):
         content = """name = input("Wie heißt du? ").strip()
 print(f"Hallo {name}")

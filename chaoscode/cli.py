@@ -24,8 +24,19 @@ from .config import (
     save_auth_token,
     user_config_dir,
 )
+from .references import select_file_references
 from .sessions import Session, SessionError, SessionStore
-from .ui import ThinkingIndicator, error, info, prompt_approval, styled, success, warning
+from .ui import (
+    ThinkingIndicator,
+    error,
+    info,
+    print_banner,
+    print_response,
+    prompt_approval,
+    styled,
+    success,
+    warning,
+)
 
 HELP_TEXT = """Befehle in der interaktiven Sitzung:
   /help          Diese Hilfe anzeigen
@@ -35,7 +46,13 @@ HELP_TEXT = """Befehle in der interaktiven Sitzung:
   /clear         Alias für /new
   /exit          ChaosCode beenden
 
-Schreibe ansonsten einfach deine Aufgabe oder Frage.
+Dateien als Kontext auswählen:
+  @src/main.py                  Dateiinhalt als Kontext laden
+  @"docs/notizen für heute.md"  Pfade mit Leerzeichen
+  @{docs/notizen für heute.md}  Alternative Schreibweise
+
+Die Dateiinhalte werden sicher aus dem Projektordner gelesen. Änderungen brauchen
+weiterhin deine Zustimmung. Schreibe ansonsten einfach deine Aufgabe oder Frage.
 """
 
 
@@ -333,8 +350,15 @@ def _run_prompt(
 
         agent.approve = approve
     try:
+        attachments = select_file_references(prompt, agent.tools)
+        if attachments:
+            selected = ", ".join(f"@{item.path}" for item in attachments)
+            info(f"Datei-Kontext geladen: {selected}")
         with ThinkingIndicator():
-            result = agent.run_turn(prompt)
+            result = agent.run_turn(
+                prompt,
+                selected_files=[(item.path, item.content) for item in attachments],
+            )
     except KeyboardInterrupt:
         print("\nAnfrage abgebrochen.", file=sys.stderr)
         return 130
@@ -348,9 +372,9 @@ def _run_prompt(
             return 1
         error(f"Unerwarteter Fehler ({type(exc).__name__}): {exc}")
         return 1
-    print(result.text)
+    print_response(result.text, print_mode=print_mode)
     if result.tool_calls:
-        info(f"Agent-Schritte mit Tools: {result.tool_calls}")
+        info(f"Tool-Schritte (inkl. @Dateien): {result.tool_calls}")
     return 0
 
 
@@ -414,6 +438,17 @@ def _run_chat(options: argparse.Namespace) -> int:
         return 1
 
     try:
+        if sys.stdout.isatty() and not options.print_mode:
+            print_banner()
+            print(
+                styled(f"v{__version__}", "2;37")
+                + styled("  ·  DeepSeek4Free", "36")
+                + f"  ·  {root}"
+            )
+            print(
+                "Dateiänderungen und Shell-Befehle brauchen deine Zustimmung. "
+                "Dateien im Prompt mit @pfad auswählen; /help zeigt Befehle."
+            )
         if prompt:
             return _run_prompt(
                 agent,
@@ -427,11 +462,10 @@ def _run_chat(options: argparse.Namespace) -> int:
             )
             return 2
 
-        print(styled("ChaosCode", "1;36") + f" {__version__}  ·  DeepSeek4Free  ·  {root}")
-        print("Dateiänderungen und Shell-Befehle brauchen deine Zustimmung. /help zeigt Befehle.")
         while True:
             try:
-                user_text = input(styled("du ❯ ", "1;32"))
+                prompt_text = styled("du", "1;32") + styled(" ❯ ", "1;36")
+                user_text = input(prompt_text)
             except EOFError:
                 print()
                 break
