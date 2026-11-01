@@ -56,6 +56,25 @@ pipx install .
 
 To update after changing the checkout, run `uv tool install --force .` or `pipx install --force .` from the repository root. Both create a persistent launcher; `uv tool run` / `uvx` is temporary and is not the system-wide install command.
 
+## Desktop-App für Windows
+
+Die Desktop-App bietet eine Chat-Ansicht mit mehreren speicherbaren und fortsetzbaren Unterhaltungen, Projektwechsel, `@`-Dateiauswahl, Websuche und den gleichen zustimmungspflichtigen Datei- und Shell-Werkzeugen wie die CLI. Die Windows-App wird als einzelne Datei `ChaosCode.exe` gebaut; sie ist kein Installer und derzeit nicht digital signiert, daher kann Windows SmartScreen beim ersten Start warnen.
+
+Du kannst die App auch als Python-Einstiegspunkt installieren (PySide6 ist dabei ein optionales Extra). Führe den Befehl im Checkout-Verzeichnis aus:
+
+```powershell
+uv tool install --force --python 3.12 ".[desktop]"
+chaoscode-desktop
+```
+
+Für den lokalen Build brauchst du Python 3.12 mit dem `py`-Launcher, PowerShell und Internetzugriff auf PyPI. Führe im Repository Folgendes aus:
+
+```powershell
+.\build_windows.ps1
+```
+
+Das Skript erstellt eine isolierte Build-Umgebung, installiert die Desktop-Abhängigkeiten und PyInstaller, führt die Tests aus und baut die `.exe`. Das Ergebnis liegt unter `dist/ChaosCode.exe`. Dafür ist kein GitHub-Actions-Workflow nötig.
+
 ## Connect DeepSeek
 
 1. Sign in to [chat.deepseek.com](https://chat.deepseek.com/) in your browser.

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "chaoscode-cli"
 version = "0.1.0"
-description = "A terminal coding agent powered by DeepSeek's free web interface"
+description = "A terminal and desktop coding agent powered by DeepSeek's free web interface"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -29,8 +29,14 @@ dependencies = [
   "prompt-toolkit>=3.0.43,<4",
 ]
 
+[project.optional-dependencies]
+desktop = ["PySide6-Essentials>=6.7,<7"]
+
 [project.scripts]
 chaoscode = "chaoscode.cli:main"
+
+[project.gui-scripts]
+chaoscode-desktop = "chaoscode.desktop_entry:main"
 
 [tool.setuptools.packages.find]
 include = ["chaoscode*"]

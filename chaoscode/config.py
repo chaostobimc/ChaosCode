@@ -84,6 +84,29 @@ def _write_config(value: dict[str, Any]) -> None:
                 pass
 
 
+def get_preference(key: str, default: Any = None) -> Any:
+    """Read a non-secret application preference from the user config."""
+    if not isinstance(key, str) or not key.strip():
+        raise ValueError("Der Einstellungsschlüssel darf nicht leer sein.")
+    preferences = _read_config().get("preferences", {})
+    if not isinstance(preferences, dict):
+        return default
+    return preferences.get(key, default)
+
+
+def set_preference(key: str, value: Any) -> None:
+    """Save a non-secret application preference while preserving the auth token."""
+    if not isinstance(key, str) or not key.strip():
+        raise ValueError("Der Einstellungsschlüssel darf nicht leer sein.")
+    config = _read_config()
+    preferences = config.get("preferences")
+    if not isinstance(preferences, dict):
+        preferences = {}
+    preferences[key] = value
+    config["preferences"] = preferences
+    _write_config(config)
+
+
 def get_auth_token() -> tuple[str | None, str | None]:
     """Return (token, source); the token is never logged or printed here."""
     from_environment = os.environ.get(TOKEN_ENV_VAR, "").strip()

@@ -3,6 +3,8 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+.venv-desktop-build/
+*.spec
 .env
 .env.*
 !.env.example

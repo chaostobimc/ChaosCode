@@ -41,6 +41,12 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(json.load(stream), {"other": "setting"})
         self.assertFalse(config.remove_saved_auth_token())
 
+    def test_preferences_are_saved_without_overwriting_token(self):
+        config.save_auth_token("saved-token")
+        config.set_preference("last_workspace", "C:/Projects/demo")
+        self.assertEqual(config.get_preference("last_workspace"), "C:/Projects/demo")
+        self.assertEqual(config.get_auth_token()[0], "saved-token")
+
     def test_blank_token_is_rejected(self):
         with self.assertRaises(ValueError):
             config.save_auth_token("   ")
