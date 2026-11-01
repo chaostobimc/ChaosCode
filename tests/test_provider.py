@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from chaoscode.provider import CloudflareError, DeepSeek4FreeClient
+from chaoscode.provider import CloudflareError, DeepSeek4FreeClient, ProviderError
 
 
 class FakeResponse:
@@ -76,6 +76,29 @@ class ProviderTests(unittest.TestCase):
         )
         self.assertEqual("".join(DeepSeek4FreeClient._iter_sse_content(response)), "Hello")
 
+    def test_current_patch_sse_schema_and_batch_frames(self):
+        snapshot = {
+            "v": {
+                "response": {
+                    "fragments": [
+                        {"type": "RESPONSE", "content": "Hello"},
+                        {"type": "THINK", "content": "private reasoning"},
+                    ]
+                }
+            }
+        }
+        response = FakeResponse(
+            [
+                sse(snapshot).encode(),
+                b'data: {"p":"response/fragments/-1/content","o":"APPEND","v":" world"}',
+                b'data: {"v":"!"}',
+                b'data: {"p":"response/thinking/-1/content","o":"APPEND","v":" hidden"}',
+                b'data: {"p":"response/fragments/1/content","o":"BATCH","v":[{"o":"APPEND","v":"?"}]}',
+                b"data: [DONE]",
+            ]
+        )
+        self.assertEqual("".join(DeepSeek4FreeClient._iter_sse_content(response)), "Hello world!?")
+
     def test_complete_builds_expected_payload_and_closes_response(self):
         response = FakeResponse(
             [
@@ -99,7 +122,11 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(kwargs["json"]["chat_session_id"], "remote-session")
         self.assertFalse(kwargs["json"]["thinking_enabled"])
         self.assertTrue(kwargs["json"]["search_enabled"])
+        self.assertEqual(kwargs["json"]["model_type"], "default")
+        self.assertIsNone(kwargs["json"]["action"])
+        self.assertFalse(kwargs["json"]["preempt"])
         self.assertEqual(kwargs["headers"]["x-ds-pow-response"], "proof")
+        self.assertEqual(kwargs["headers"]["x-client-version"], "2.0.0")
         self.assertTrue(response.closed)
 
     def test_complete_performs_session_challenge_and_stream_requests(self):
@@ -115,7 +142,9 @@ class ProviderTests(unittest.TestCase):
         client._pow = FakePow()
         client._session = FakeSequenceSession(
             [
-                FakeJsonResponse({"code": 0, "data": {"biz_data": {"id": "session-1"}}}),
+                FakeJsonResponse(
+                    {"code": 0, "data": {"biz_data": {"chat_session": {"id": "session-1"}}}}
+                ),
                 FakeJsonResponse(
                     {
                         "code": 0,
@@ -143,11 +172,26 @@ class ProviderTests(unittest.TestCase):
         self.assertTrue(urls[0].endswith("/chat_session/create"))
         self.assertTrue(urls[1].endswith("/chat/create_pow_challenge"))
         self.assertTrue(urls[2].endswith("/chat/completion"))
-        self.assertEqual(client._session.calls[0][1]["json"], {"character_id": None})
+        self.assertEqual(client._session.calls[0][1]["json"], {})
         self.assertEqual(
             client._session.calls[1][1]["json"]["target_path"], "/api/v0/chat/completion"
         )
         self.assertEqual(client._session.calls[2][1]["json"]["chat_session_id"], "session-1")
+
+    def test_old_session_response_shape_remains_supported(self):
+        client = object.__new__(DeepSeek4FreeClient)
+        client._post_json = lambda *_args: {"code": 0, "data": {"biz_data": {"id": "legacy-id"}}}
+        self.assertEqual(client._create_chat_session(), "legacy-id")
+
+    def test_unrecognized_session_shape_reports_safe_keys(self):
+        client = object.__new__(DeepSeek4FreeClient)
+        client._post_json = lambda *_args: {
+            "code": 0,
+            "data": {"biz_data": {"new_field": {}}},
+        }
+        with self.assertRaises(ProviderError) as caught:
+            client._create_chat_session()
+        self.assertIn("biz_data keys=['new_field']", str(caught.exception))
 
     def test_cloudflare_challenge_is_reported_without_bypass(self):
         response = FakeResponse([])

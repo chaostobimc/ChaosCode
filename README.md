@@ -6,9 +6,42 @@
 
 ## Install the `chaoscode` command
 
-Install once from a checkout. `pipx` creates the `chaoscode` terminal command and puts it on your PATH; you do **not** have to run a Python file to start ChaosCode.
+Install once from a checkout. **Both `uv` and `pipx` work**: they create an isolated environment and add the `chaoscode` console command to your user PATH. You do **not** have to run a Python file to start ChaosCode.
+
+### Windows (PowerShell) with `uv`
+
+Install `uv` once, for example with WinGet:
+
+```powershell
+winget install --id=astral-sh.uv -e
+```
+
+Close and reopen PowerShell, then install Python 3.12 through uv and install ChaosCode from its checkout:
+
+```powershell
+uv python install 3.12
+cd C:\Pfad\zu\ChaosCode
+uv tool install --python 3.12 .
+uv tool update-shell
+```
+
+Open a new terminal if prompted, then check `chaoscode --help`. The tool environment is isolated; the `chaoscode` command is added to your user PATH.
+
+### Windows alternative: `pipx`
+
+Install Python 3.10 or newer first (the example uses Python 3.12), then install pipx once and run this from the ChaosCode checkout:
+
+```powershell
+py -3.12 -m pip install --user pipx
+py -3.12 -m pipx ensurepath
+pipx install .
+```
+
+Restart PowerShell if `ensurepath` asks you to. `pipx` and `uv` both install the same `chaoscode` command; you only need to choose one.
 
 ### Linux / macOS
+
+With `uv`, install it using your platform's package manager, then from the checkout run `uv tool install .` (and `uv tool update-shell` if the tool directory is not on PATH). With `pipx`, install pipx once and run:
 
 ```bash
 # Install pipx once (choose the option for your system):
@@ -21,24 +54,7 @@ pipx ensurepath
 pipx install .
 ```
 
-Open a new terminal if `ensurepath` asks you to. Then run:
-
-```bash
-chaoscode --help
-```
-
-### Windows (PowerShell)
-
-```powershell
-# From the ChaosCode checkout
-py -m pip install --user pipx
-py -m pipx ensurepath
-pipx install .
-```
-
-Open a new terminal if needed, then run `chaoscode --help`. Python is used by the installed launcher behind the scenes, but you start the app with the `chaoscode` command like any other CLI tool.
-
-To update after changing the checkout, run `pipx install --force .` from the repository root. A normal `pip install .` also installs the command, but `pipx` is recommended to keep ChaosCode's dependencies isolated from other Python tools.
+To update after changing the checkout, run `uv tool install --force .` or `pipx install --force .` from the repository root. Both create a persistent launcher; `uv tool run` / `uvx` is temporary and is not the system-wide install command.
 
 ## Connect DeepSeek
 

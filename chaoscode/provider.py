@@ -21,7 +21,7 @@ except ImportError as exc:  # pragma: no cover - installation error path
 from ._vendor.deepseek4free.pow import DeepSeekPOW
 
 BASE_URL = "https://chat.deepseek.com/api/v0"
-APP_VERSION = "20241129.1"
+APP_VERSION = "2.0.0"
 MAX_RESPONSE_CHARS = 2_000_000
 
 
@@ -42,7 +42,7 @@ class CloudflareError(ProviderError):
 
 
 class DeepSeek4FreeClient:
-    """Minimal, streaming client compatible with xtekky/deepseek4free's API."""
+    """Streaming client for the current DeepSeek4Free web-chat wire format."""
 
     def __init__(self, auth_token: str, timeout: int = 180) -> None:
         if not isinstance(auth_token, str) or not auth_token.strip():
@@ -51,7 +51,7 @@ class DeepSeek4FreeClient:
         self._timeout = max(30, min(int(timeout), 600))
         try:
             self._pow = DeepSeekPOW()
-            self._session = requests.Session(impersonate="chrome")
+            self._session = requests.Session(impersonate="chrome120")
             self._session.headers.update(self._headers())
         except Exception as exc:
             raise ProviderError(f"Could not initialize DeepSeek4Free transport: {exc}") from exc
@@ -64,10 +64,15 @@ class DeepSeek4FreeClient:
             "content-type": "application/json",
             "origin": "https://chat.deepseek.com",
             "referer": "https://chat.deepseek.com/",
+            "user-agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36"
+            ),
             "x-app-version": APP_VERSION,
+            "x-client-bundle-id": "com.deepseek.chat",
             "x-client-locale": "en_US",
             "x-client-platform": "web",
-            "x-client-version": "1.0.0-always",
+            "x-client-version": APP_VERSION,
         }
         if pow_response:
             headers["x-ds-pow-response"] = pow_response
@@ -131,9 +136,9 @@ class DeepSeek4FreeClient:
         try:
             self._raise_for_response(response)
             data = self._response_json(response)
-            if data.get("code") not in (None, 0):
+            if data.get("code") not in (None, 0, "0"):
                 message = data.get("msg") or data.get("message") or "request failed"
-                if data.get("code") in (401, 40101):
+                if data.get("code") in (401, 40101, "401", "40101"):
                     raise AuthenticationError("DeepSeek rejected the web-session token.")
                 raise ProviderError(f"DeepSeek API error: {str(message)[:500]}")
             return data
@@ -142,32 +147,125 @@ class DeepSeek4FreeClient:
             if callable(close):
                 close()
 
+    @staticmethod
+    def _biz_data(response: dict[str, Any]) -> dict[str, Any]:
+        data = response.get("data")
+        if isinstance(data, dict) and isinstance(data.get("biz_data"), dict):
+            return data["biz_data"]
+        return {}
+
     def _create_chat_session(self) -> str:
-        response = self._post_json("/chat_session/create", {"character_id": None})
-        try:
-            session_id = response["data"]["biz_data"]["id"]
-        except (KeyError, TypeError) as exc:
-            raise ProviderError("DeepSeek returned an invalid chat-session response.") from exc
-        if not isinstance(session_id, str) or not session_id:
-            raise ProviderError("DeepSeek returned an empty chat-session ID.")
-        return session_id
+        # The current web API nests the ID under biz_data.chat_session.id.
+        # Keep the earlier shapes as fallbacks for older DeepSeek deployments.
+        response = self._post_json("/chat_session/create", {})
+        biz = self._biz_data(response)
+        session = biz.get("chat_session") or biz.get("session") or biz
+        if isinstance(session, dict):
+            session_id = (
+                session.get("id") or session.get("chat_session_id") or session.get("session_id")
+            )
+        else:
+            session_id = session if isinstance(session, (str, int)) else None
+        if not session_id:
+            data = response.get("data")
+            data_keys = sorted(data.keys()) if isinstance(data, dict) else []
+            biz_keys = sorted(biz.keys())
+            top_keys = sorted(response.keys())
+            code = response.get("code", "<missing>")
+            raise ProviderError(
+                "DeepSeek accepted the request but returned an unrecognized chat-session shape. "
+                "Expected data.biz_data.chat_session.id (or the older data.biz_data.id); "
+                f"received code={code!r}, top-level keys={top_keys}, "
+                f"data keys={data_keys}, biz_data keys={biz_keys}. "
+                "The private DeepSeek API may have changed. Update ChaosCode and try again."
+            )
+        return str(session_id)
 
     def _get_pow_challenge(self) -> dict[str, Any]:
         response = self._post_json(
             "/chat/create_pow_challenge",
             {"target_path": "/api/v0/chat/completion"},
         )
-        try:
-            challenge = response["data"]["biz_data"]["challenge"]
-        except (KeyError, TypeError) as exc:
-            raise ProviderError("DeepSeek returned an invalid proof-of-work challenge.") from exc
-        if not isinstance(challenge, dict):
+        biz = self._biz_data(response)
+        challenge = biz.get("challenge") or biz
+        if not isinstance(challenge, dict) or not challenge.get("challenge"):
             raise ProviderError("DeepSeek returned an invalid proof-of-work challenge.")
         return challenge
 
     @staticmethod
     def _iter_sse_content(response: Any) -> Iterator[str]:
+        """Yield user-facing text from current patch-frame or legacy OpenAI SSE."""
         total_chars = 0
+        active_path: str | None = None
+        seeded_response = False
+
+        def emit_text(content: Any) -> str | None:
+            nonlocal total_chars
+            if not isinstance(content, str) or not content:
+                return None
+            total_chars += len(content)
+            if total_chars > MAX_RESPONSE_CHARS:
+                raise ProviderError("DeepSeek response exceeded the 2 MB safety limit.")
+            return content
+
+        def parse_frame(frame: Any, inherited_path: str | None = None) -> Iterator[str]:
+            nonlocal active_path, seeded_response
+            if not isinstance(frame, dict):
+                return
+            if frame.get("type") == "error" or frame.get("error"):
+                detail_value = frame.get("content", frame.get("error", "DeepSeek stream error"))
+                if isinstance(detail_value, dict):
+                    detail_value = detail_value.get("message", detail_value)
+                detail = str(detail_value)[:500]
+                if frame.get("finish_reason") == "rate_limit_reached":
+                    raise RateLimitError(detail)
+                raise ProviderError(f"DeepSeek stream error: {detail}")
+
+            # Older xtekky/deepseek4free SSE schema.
+            choices = frame.get("choices")
+            if isinstance(choices, list) and choices:
+                choice = choices[0]
+                delta = choice.get("delta", {}) if isinstance(choice, dict) else {}
+                if isinstance(delta, dict):
+                    kind = delta.get("type", "")
+                    content = delta.get("content", "")
+                    if kind not in {"thinking", "reasoning", "reasoning_content"}:
+                        emitted = emit_text(content)
+                        if emitted:
+                            yield emitted
+                return
+
+            path = frame.get("p", inherited_path or active_path or "")
+            operation = frame.get("o")
+            value = frame.get("v")
+            if operation == "BATCH" and isinstance(value, list):
+                for item in value:
+                    yield from parse_frame(item, str(path) if path else None)
+                return
+
+            # The current API starts with a response snapshot, then streams patches.
+            if isinstance(value, dict) and isinstance(value.get("response"), dict):
+                fragments = value["response"].get("fragments", [])
+                for fragment in fragments if isinstance(fragments, list) else []:
+                    if not isinstance(fragment, dict) or fragment.get("type") == "THINK":
+                        continue
+                    emitted = emit_text(fragment.get("content"))
+                    if emitted and not seeded_response:
+                        seeded_response = True
+                        yield emitted
+                return
+
+            if "p" in frame:
+                active_path = str(frame["p"])
+                path = active_path
+            if isinstance(value, str) and path:
+                is_thinking = "thinking" in str(path).lower()
+                is_content = str(path).endswith("content")
+                if (operation == "APPEND" or "p" not in frame) and is_content and not is_thinking:
+                    emitted = emit_text(value)
+                    if emitted:
+                        yield emitted
+
         for line in response.iter_lines():
             if not line:
                 continue
@@ -181,40 +279,17 @@ class DeepSeek4FreeClient:
                 break
             try:
                 payload = json.loads(data_line)
-            except json.JSONDecodeError as exc:
-                raise ProviderError("DeepSeek sent a malformed streaming event.") from exc
-            if not isinstance(payload, dict):
+            except json.JSONDecodeError:
+                # Some servers send non-JSON keep-alive data frames.
                 continue
-            if payload.get("error"):
-                detail = payload["error"]
-                if isinstance(detail, dict):
-                    detail = detail.get("message", "request failed")
-                raise ProviderError(f"DeepSeek stream error: {str(detail)[:500]}")
-            choices = payload.get("choices")
-            if not isinstance(choices, list) or not choices:
-                continue
-            choice = choices[0]
-            if not isinstance(choice, dict):
-                continue
-            delta = choice.get("delta", {})
-            if not isinstance(delta, dict):
-                continue
-            content = delta.get("content", "")
-            if isinstance(content, str) and content:
-                total_chars += len(content)
-                if total_chars > MAX_RESPONSE_CHARS:
-                    raise ProviderError("DeepSeek response exceeded the 2 MB safety limit.")
-                # Reasoning chunks are deliberately not surfaced to the user/agent history.
-                kind = delta.get("type")
-                if kind not in {"thinking", "reasoning", "reasoning_content"}:
-                    yield content
+            yield from parse_frame(payload)
 
     def complete(self, prompt: str, *, thinking: bool = True, search: bool = False) -> str:
         """Send one prompt and return the model's final text.
 
-        Each request gets a fresh remote chat session. ChaosCode includes its
-        bounded local conversation history in the prompt because the legacy
-        deepseek4free wrapper does not reliably expose parent message IDs.
+        Each agent request gets a fresh remote chat session. ChaosCode includes
+        its bounded local conversation history in the prompt, so it does not
+        depend on undocumented remote thread/message identifiers.
         """
         if not isinstance(prompt, str) or not prompt.strip():
             raise ValueError("prompt must be a non-empty string")
@@ -233,6 +308,9 @@ class DeepSeek4FreeClient:
             "ref_file_ids": [],
             "thinking_enabled": bool(thinking),
             "search_enabled": bool(search),
+            "action": None,
+            "preempt": False,
+            "model_type": "default",
         }
         try:
             response = self._session.post(
