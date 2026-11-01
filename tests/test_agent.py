@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from chaoscode.agent import CodingAgent, extract_tool_call
-from chaoscode.prompts import TOOL_TAG_CLOSE, TOOL_TAG_OPEN
+from chaoscode.prompts import TOOL_TAG_CLOSE, TOOL_TAG_OPEN, build_system_prompt
 from chaoscode.sessions import SessionStore
 
 
@@ -70,6 +70,47 @@ class AgentTests(unittest.TestCase):
         result = agent.run_turn("Explain the task")
         self.assertEqual(result.text, "I will answer without a tool.")
         self.assertIn("Tool-Protokollfehler", provider.prompts[1][0])
+        self.assertNotIn("bad json", provider.prompts[1][0])
+
+    def test_repeated_protocol_failure_stops_without_spamming_model(self):
+        provider = FakeProvider(
+            [
+                "<chaoscode_tool>{bad json}</chaoscode_tool>",
+                "<chaoscode_tool>{still bad}</chaoscode_tool>",
+                "This response should never be requested.",
+            ]
+        )
+        agent = CodingAgent(
+            workspace=self.root,
+            provider=provider,
+            session=self.session,
+            session_store=None,
+            approve=lambda *_args: True,
+        )
+        result = agent.run_turn("Create a file")
+        self.assertIn("nicht lesbar", result.text)
+        self.assertEqual(len(provider.prompts), 2)
+
+    def test_creates_requested_python_cli_file(self):
+        content = """name = input("Wie heißt du? ").strip()
+print(f"Hallo {name}")
+"""
+        provider = FakeProvider(
+            [
+                tool_call("write_file", {"path": "hallo.py", "content": content}),
+                "Ich habe `hallo.py` angelegt.",
+            ]
+        )
+        agent = CodingAgent(
+            workspace=self.root,
+            provider=provider,
+            session=self.session,
+            session_store=None,
+            approve=lambda *_args: True,
+        )
+        result = agent.run_turn("Erstelle ein Python-CLI, das meinen Namen abfragt und Hallo sagt.")
+        self.assertEqual(result.tool_calls, 1)
+        self.assertEqual((self.root / "hallo.py").read_text(encoding="utf-8"), content)
 
     def test_write_tool_still_requires_approval(self):
         provider = FakeProvider(
@@ -90,6 +131,19 @@ class AgentTests(unittest.TestCase):
         self.assertFalse((self.root / "new.txt").exists())
         self.assertIn("denied", provider.prompts[1][0])
 
+    def test_extract_tool_call_accepts_fences_and_short_preamble(self):
+        block = (
+            f"{TOOL_TAG_OPEN}\n"
+            '{"name":"read_file","arguments":{"path":"src/main.py"}}\n'
+            f"{TOOL_TAG_CLOSE}"
+        )
+        for response in (f"```xml\n{block}\n```", f"Ich prüfe die Datei.\n{block}\n"):
+            with self.subTest(response=response):
+                call, issue = extract_tool_call(response)
+                self.assertIsNone(issue)
+                self.assertEqual(call.name, "read_file")
+                self.assertEqual(call.arguments, {"path": "src/main.py"})
+
     def test_extract_tool_call_validation(self):
         call, issue = extract_tool_call(tool_call("read_file", {"path": "x"}))
         self.assertIsNone(issue)
@@ -98,6 +152,11 @@ class AgentTests(unittest.TestCase):
         self.assertIsNone(call)
         self.assertIn("valid JSON", issue)
         self.assertEqual(extract_tool_call("plain answer"), (None, None))
+
+    def test_system_prompt_contains_a_valid_tool_example(self):
+        prompt = build_system_prompt(self.root)
+        self.assertIn('{"name":"read_file","arguments":{"path":"src/main.py"}}', prompt)
+        self.assertNotIn('"arguments":{...}', prompt)
 
 
 if __name__ == "__main__":
