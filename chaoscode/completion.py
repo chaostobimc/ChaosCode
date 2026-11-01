@@ -114,6 +114,12 @@ def _completion_key_bindings() -> KeyBindings:
     return bindings
 
 
+def _prompt_message() -> HTML | str:
+    if use_color():
+        return HTML("<style fg='ansigreen' bold='true'>du</style> <style fg='ansicyan'>❯</style> ")
+    return "du > "
+
+
 class AtFilePrompt:
     """Prompt Toolkit session with a colored prompt and @path suggestions."""
 
@@ -131,8 +137,4 @@ class AtFilePrompt:
 
     def prompt(self) -> str:
         self.completer.refresh()
-        if use_color():
-            message = HTML("<style fg='ansigreen' bold>du</style> <style fg='ansicyan'>❯</style> ")
-        else:
-            message = "du > "
-        return self.session.prompt(message)
+        return self.session.prompt(_prompt_message())

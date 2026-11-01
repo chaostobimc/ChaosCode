@@ -1,12 +1,13 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
-from prompt_toolkit.formatted_text import to_formatted_text
+from prompt_toolkit.formatted_text import HTML, to_formatted_text
 
-from chaoscode.completion import AtFileCompleter
+from chaoscode.completion import AtFileCompleter, _prompt_message
 from chaoscode.tools import WorkspaceTools
 
 
@@ -52,6 +53,13 @@ class AtFileCompleterTests(unittest.TestCase):
     def test_does_not_suggest_for_email_or_regular_text(self):
         self.assertEqual(self.complete("mail me@example.com"), [])
         self.assertEqual(self.complete("Review the main.py file"), [])
+
+    def test_prompt_message_builds_valid_html_and_plain_fallback(self):
+        with patch("chaoscode.completion.use_color", return_value=True):
+            message = _prompt_message()
+        self.assertIsInstance(message, HTML)
+        with patch("chaoscode.completion.use_color", return_value=False):
+            self.assertEqual(_prompt_message(), "du > ")
 
     def test_refresh_picks_up_new_project_files(self):
         (self.root / "new_module.py").write_text("pass\n", encoding="utf-8")
